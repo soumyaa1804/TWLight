@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import random
-from datetime import date, timedelta
+import urllib
+from datetime import date, timedelta, datetime
 from itertools import chain
 from unittest.mock import patch
 import reversion
@@ -2038,6 +2039,7 @@ class RenewApplicationTest(BaseApplicationViewTest):
 
         partner.authorization_method = Partner.PROXY
         partner.requested_access_duration = True  # require duration of access
+        partner.specific_title = True  # require specific_title
         partner.save()
 
         editor1 = EditorCraftRoom(self, Terms=True, Coordinator=False)
@@ -2052,11 +2054,13 @@ class RenewApplicationTest(BaseApplicationViewTest):
         renewal_form = response.context["form"]
         self.assertTrue(renewal_form["account_email"])
         self.assertTrue(renewal_form["requested_access_duration"])
+        self.assertTrue(renewal_form["specific_title"])
 
         data = renewal_form.initial
         data["account_email"] = "test@example.com"
         data["return_url"] = renewal_form["return_url"].value()
         data["requested_access_duration"] = 6
+        data["specific_title"] = "Test"
 
         self.client.post(renewal_url, data)
         app1.refresh_from_db()
@@ -2067,6 +2071,7 @@ class RenewApplicationTest(BaseApplicationViewTest):
         # Make sure everything is in place in the app
         self.assertEqual(app2.account_email, "test@example.com")
         self.assertEqual(app2.requested_access_duration, 6)
+        self.assertEqual(app2.specific_title, "Test")
 
     def test_renewal_with_specific_stream(self):
         editor = EditorCraftRoom(self, Terms=True, Coordinator=False)
@@ -2407,13 +2412,13 @@ class EvaluateApplicationTest(TestCase):
     def setUp(self):
 
         super(EvaluateApplicationTest, self).setUp()
-        editor = EditorFactory()
-        self.user = editor.user
+        self.editor = EditorFactory()
+        self.user = self.editor.user
 
         self.partner = PartnerFactory()
 
         self.application = ApplicationFactory(
-            editor=editor,
+            editor=self.editor,
             status=Application.PENDING,
             partner=self.partner,
             rationale="Just because",
@@ -2919,6 +2924,25 @@ class EvaluateApplicationTest(TestCase):
         self.application.refresh_from_db()
         self.assertEqual(self.application.sent_by, coordinator.user)
 
+    def test_everything_is_rendered_as_intended(self):
+        EditorCraftRoom(self, Terms=False, editor=self.editor)
+        response = self.client.get(self.url)
+        pk = self.application.pk
+        # Users visiting EvaluateApplication are redirected to ToU if they
+        # agreed to it and redirected back
+        terms_url = reverse("terms") + "?next=" + urllib.parse.quote_plus("/applications/evaluate/{}/".format(pk))
+        self.assertRedirects(response, terms_url)
+        # Editor agrees to the terms of use
+        EditorCraftRoom(self, Terms=True, editor=self.editor, Coordinator=False)
+        # Visits the App Eval page
+        response = self.client.get(self.url)
+        # For some reason the date formatting in tests is different
+        # eg. Nov. 01, 2019
+        today = date.today().strftime("%b. %d, %Y")
+        self.assertContains(response, today)
+        self.assertContains(response, self.application.status)
+        self.assertContains(response, self.application.partner)
+        self.assertContains(response, self.application.rationale)
 
 class BatchEditTest(TestCase):
     def setUp(self):
