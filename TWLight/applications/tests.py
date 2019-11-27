@@ -3589,8 +3589,8 @@ class MarkSentTest(TestCase):
 
         response = views.ListReadyApplicationsView.as_view()(request)
         content = response.render().content.decode("utf-8")
-        self.assertIn(self.partner2.company_name, content)
-        self.assertNotIn(partner3.company_name, content)
+        self.assertIn(html.escape(self.partner2.company_name), content)
+        self.assertNotIn(html.escape(partner3.company_name), content)
 
     def test_restricted_applications_mark_sent(self):
         # Applications from restricted users shouldn't be listed
